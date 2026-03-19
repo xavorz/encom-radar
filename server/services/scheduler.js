@@ -1,5 +1,8 @@
 const cron = require('node-cron');
-const { buscarOportunidades } = require('./claude');
+const { analizarOportunidades } = require('./claude');
+const { buscarBDNS } = require('./scrapers/bdns');
+const { buscarContratacion } = require('./scrapers/contratacion');
+const { buscarDOGV } = require('./scrapers/dogv');
 const { query } = require('./db');
 
 function calcularAlertaPlazo(fechaPlazo) {
@@ -14,7 +17,7 @@ async function ejecutarBusqueda({ forzar = false } = {}) {
   const inicio = Date.now();
   console.log(`\n🔍 [${new Date().toISOString()}] Iniciando búsqueda de oportunidades...`);
 
-  // Evitar doble ejecución el mismo día salvo que sea búsqueda manual (forzar=true)
+  // Evitar doble ejecución el mismo día salvo búsqueda manual
   if (!forzar) {
     const hoy = new Date().toISOString().split('T')[0];
     const yaEjecutada = await query(
@@ -28,20 +31,69 @@ async function ejecutarBusqueda({ forzar = false } = {}) {
   }
 
   try {
-    const oportunidades = await buscarOportunidades();
-    console.log(`📋 Encontradas ${oportunidades.length} oportunidades con rating >= 5`);
+    // FASE 1: Scraping directo de fuentes públicas (GRATIS, sin tokens)
+    console.log('\n📡 FASE 1: Scraping directo de fuentes públicas...');
 
+    const [resBDNS, resPLACSP, resDOGV] = await Promise.allSettled([
+      buscarBDNS(),
+      buscarContratacion(),
+      buscarDOGV()
+    ]);
+
+    const todasRaw = [
+      ...(resBDNS.status === 'fulfilled' ? resBDNS.value : []),
+      ...(resPLACSP.status === 'fulfilled' ? resPLACSP.value : []),
+      ...(resDOGV.status === 'fulfilled' ? resDOGV.value : [])
+    ];
+
+    if (resBDNS.status === 'rejected') console.error('  ❌ BDNS falló:', resBDNS.reason?.message);
+    if (resPLACSP.status === 'rejected') console.error('  ❌ PLACSP falló:', resPLACSP.reason?.message);
+    if (resDOGV.status === 'rejected') console.error('  ❌ DOGV falló:', resDOGV.reason?.message);
+
+    console.log(`\n📊 Total scrapeado: ${todasRaw.length} oportunidades brutas`);
+    console.log(`  - BDNS: ${resBDNS.status === 'fulfilled' ? resBDNS.value.length : 'error'}`);
+    console.log(`  - PLACSP: ${resPLACSP.status === 'fulfilled' ? resPLACSP.value.length : 'error'}`);
+    console.log(`  - DOGV/GVA: ${resDOGV.status === 'fulfilled' ? resDOGV.value.length : 'error'}`);
+
+    if (todasRaw.length === 0) {
+      console.log('⚠️ No se encontraron oportunidades en ninguna fuente');
+      const duracion = Date.now() - inicio;
+      await query(
+        'INSERT INTO busquedas (resultados_encontrados, resultados_guardados, duracion_ms) VALUES (0, 0, $1)',
+        [duracion]
+      );
+      return { encontradas: 0, guardadas: 0, duracion };
+    }
+
+    // Deduplicar por título
+    const unicas = [];
+    const titulosVistos = new Set();
+    for (const op of todasRaw) {
+      const tituloNorm = op.titulo.toLowerCase().substring(0, 80);
+      if (!titulosVistos.has(tituloNorm)) {
+        titulosVistos.add(tituloNorm);
+        unicas.push(op);
+      }
+    }
+    console.log(`  📋 Tras deduplicar: ${unicas.length} únicas`);
+
+    // FASE 2: Análisis con Claude Haiku (barato, ~$0.01 por lote de 15)
+    console.log('\n🤖 FASE 2: Análisis de relevancia con IA (Haiku)...');
+    const analizadas = await analizarOportunidades(unicas);
+    console.log(`  ✅ ${analizadas.length} oportunidades con rating >= 5`);
+
+    // FASE 3: Guardar en base de datos
+    console.log('\n💾 FASE 3: Guardando en base de datos...');
     let guardadas = 0;
 
-    for (const op of oportunidades) {
-      // Verificar duplicados por título similar
+    for (const op of analizadas) {
       const existente = await query(
         'SELECT id FROM oportunidades WHERE LOWER(titulo) = LOWER($1) AND organismo = $2',
         [op.titulo, op.organismo]
       );
 
       if (existente.rows.length > 0) {
-        console.log(`⏭️  Ya existe: ${op.titulo.substring(0, 60)}...`);
+        console.log(`  ⏭️ Ya existe: ${op.titulo.substring(0, 50)}...`);
         continue;
       }
 
@@ -52,31 +104,23 @@ async function ejecutarBusqueda({ forzar = false } = {}) {
         (titulo, organismo, tipo, importe, plazo_presentacion, rating, justificacion_rating, por_que_encaja, url_fuente, alerta_plazo)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
         [
-          op.titulo,
-          op.organismo,
-          op.tipo,
-          op.importe,
-          op.plazo_presentacion,
-          op.rating,
-          op.justificacion_rating,
-          op.por_que_encaja,
-          op.url_fuente,
-          alertaPlazo
+          op.titulo, op.organismo, op.tipo, op.importe,
+          op.plazo_presentacion, op.rating, op.justificacion_rating,
+          op.por_que_encaja, op.url_fuente, alertaPlazo
         ]
       );
       guardadas++;
-      console.log(`✅ Guardada (rating ${op.rating}): ${op.titulo.substring(0, 60)}`);
+      console.log(`  ✅ (${op.tipo} | rating ${op.rating}) ${op.titulo.substring(0, 60)}`);
     }
 
     const duracion = Date.now() - inicio;
 
-    // Registrar búsqueda
     await query(
       'INSERT INTO busquedas (resultados_encontrados, resultados_guardados, duracion_ms) VALUES ($1, $2, $3)',
-      [oportunidades.length, guardadas, duracion]
+      [analizadas.length, guardadas, duracion]
     );
 
-    // Actualizar alertas de plazo en oportunidades existentes
+    // Actualizar alertas de plazo
     await query(`
       UPDATE oportunidades
       SET alerta_plazo = (plazo_presentacion IS NOT NULL AND plazo_presentacion - CURRENT_DATE <= 15 AND plazo_presentacion >= CURRENT_DATE),
@@ -84,8 +128,8 @@ async function ejecutarBusqueda({ forzar = false } = {}) {
       WHERE estado NOT IN ('resuelta')
     `);
 
-    console.log(`✅ Búsqueda completada: ${guardadas} nuevas guardadas en ${duracion}ms\n`);
-    return { encontradas: oportunidades.length, guardadas, duracion };
+    console.log(`\n✅ Búsqueda completada en ${Math.round(duracion/1000)}s: ${analizadas.length} relevantes, ${guardadas} nuevas guardadas\n`);
+    return { encontradas: analizadas.length, guardadas, duracion };
 
   } catch (err) {
     const duracion = Date.now() - inicio;
@@ -100,7 +144,6 @@ async function ejecutarBusqueda({ forzar = false } = {}) {
 
 function iniciarScheduler() {
   const cronSchedule = process.env.CRON_SCHEDULE || '0 8 * * *';
-
   console.log(`⏰ Scheduler configurado: "${cronSchedule}"`);
 
   cron.schedule(cronSchedule, async () => {
@@ -109,12 +152,9 @@ function iniciarScheduler() {
     } catch (err) {
       console.error('❌ Error en ejecución programada:', err.message);
     }
-  }, {
-    timezone: 'Europe/Madrid'
-  });
+  }, { timezone: 'Europe/Madrid' });
 }
 
-// Limpiar oportunidades antiguas (más de 30 días, no guardadas)
 async function limpiarAntiguas() {
   try {
     const res = await query(`
