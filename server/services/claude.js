@@ -13,27 +13,34 @@ const PERFIL_ENCOM = `Empresa valenciana de eventos tecnológicos y culturales. 
 async function analizarOportunidades(oportunidadesRaw) {
   if (!oportunidadesRaw || oportunidadesRaw.length === 0) return [];
 
-  // Procesar en lotes de 15 para no exceder el contexto
-  const LOTE_SIZE = 15;
+  // Lotes de 30 para minimizar llamadas a la API
+  const LOTE_SIZE = 30;
+  // Pausa de 60s entre lotes para respetar rate limit de 10K tokens/min
+  const PAUSA_ENTRE_LOTES = 60000;
+  const MAX_LOTES = 5; // Máximo 5 lotes (150 oportunidades) para no eternizar
   const resultados = [];
 
-  for (let i = 0; i < oportunidadesRaw.length; i += LOTE_SIZE) {
+  const totalLotes = Math.min(Math.ceil(oportunidadesRaw.length / LOTE_SIZE), MAX_LOTES);
+
+  for (let i = 0; i < oportunidadesRaw.length && Math.floor(i / LOTE_SIZE) < MAX_LOTES; i += LOTE_SIZE) {
+    const loteNum = Math.floor(i / LOTE_SIZE) + 1;
     const lote = oportunidadesRaw.slice(i, i + LOTE_SIZE);
-    console.log(`  🤖 Analizando lote ${Math.floor(i/LOTE_SIZE) + 1}/${Math.ceil(oportunidadesRaw.length/LOTE_SIZE)} (${lote.length} oportunidades)...`);
+    console.log(`  🤖 Analizando lote ${loteNum}/${totalLotes} (${lote.length} oportunidades)...`);
 
     const loteAnalizado = await analizarLote(lote);
     resultados.push(...loteAnalizado);
 
-    // Pausa entre lotes
-    if (i + LOTE_SIZE < oportunidadesRaw.length) {
-      await new Promise(r => setTimeout(r, 3000));
+    // Pausa larga entre lotes para respetar rate limit
+    if (i + LOTE_SIZE < oportunidadesRaw.length && loteNum < MAX_LOTES) {
+      console.log(`  ⏸️  Pausa 60s antes del siguiente lote (rate limit)...`);
+      await new Promise(r => setTimeout(r, PAUSA_ENTRE_LOTES));
     }
   }
 
   return resultados;
 }
 
-async function analizarLote(lote) {
+async function analizarLote(lote, intento = 0) {
   const oportunidadesTexto = lote.map((op, idx) => `
 [${idx + 1}]
 Título: ${op.titulo}
@@ -107,12 +114,17 @@ SOLO JSON válido, sin texto adicional.`;
       .filter(Boolean);
 
   } catch (err) {
-    if (err.status === 429) {
-      console.log('  ⏳ Rate limit en análisis, esperando 30s...');
-      await new Promise(r => setTimeout(r, 30000));
-      return analizarLote(lote); // reintento
+    if (err.status === 429 && intento < 2) {
+      const espera = (intento + 1) * 60000; // 60s, 120s
+      console.log(`  ⏳ Rate limit en análisis (intento ${intento + 1}/2), esperando ${espera/1000}s...`);
+      await new Promise(r => setTimeout(r, espera));
+      return analizarLote(lote, intento + 1);
     }
-    console.error('  ❌ Error analizando lote:', err.message);
+    if (err.status === 429) {
+      console.log('  ⛔ Rate limit persistente, saltando este lote');
+    } else {
+      console.error('  ❌ Error analizando lote:', err.message);
+    }
     return [];
   }
 }

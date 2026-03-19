@@ -13,17 +13,25 @@
 
 const BDNS_API = 'https://www.infosubvenciones.es/bdnstrans/api/convocatorias/busqueda';
 
-// Keywords para filtrar localmente en la descripción
-const KEYWORDS = [
-  'evento', 'festival', 'cultural', 'cultura', 'turismo', 'turístic',
-  'innovación', 'innovació', 'digital', 'tecnológic', 'gaming', 'videojuego',
-  'emprendimiento', 'startup', 'audiovisual', 'creativ', 'feria', 'congreso',
-  'música', 'escénic', 'juventud', 'joventut', 'ocio', 'promoción',
-  'espectáculo', 'patrimonio cultural', 'industria cultural',
-  'comunicación', 'publicidad', 'diseño', 'producción artística'
+// Keywords ESTRICTOS — solo lo que realmente puede encajar con una empresa de eventos
+const KEYWORDS_DIRECTOS = [
+  'organización de eventos', 'producción de eventos', 'festival',
+  'feria', 'congreso', 'gaming', 'videojuego', 'startup',
+  'industria cultural', 'industrias creativas', 'cultura digital',
+  'evento cultural', 'eventos culturales', 'eventos tecnológic',
+  'transformación digital', 'ecosistema emprendedor',
+  'promoción turística', 'turismo cultural',
+  'actividades culturales y artísticas',
+  'espectáculo', 'artes escénic', 'música en vivo',
 ];
 
-// Keywords para valencia/comunitat valenciana
+// Keywords más amplios pero solo si están en Valencia
+const KEYWORDS_AMPLIOS = [
+  'cultural', 'cultura', 'turismo', 'innovación', 'digital',
+  'audiovisual', 'creativ', 'juventud', 'emprendimiento', 'ocio',
+];
+
+// Valencia
 const KEYWORDS_VALENCIA = [
   'valencia', 'valencian', 'ivace', 'ivaj', 'gva', 'generalitat',
   'diputació', 'diputacion de valencia', 'feria valencia'
@@ -69,13 +77,17 @@ async function buscarBDNS() {
         const descripcion = (conv.descripcion || '').toLowerCase();
         const organismo = `${conv.nivel1 || ''} ${conv.nivel2 || ''} ${conv.nivel3 || ''}`.toLowerCase();
 
-        // Filtrar: debe contener al menos un keyword relevante
-        const esRelevante = KEYWORDS.some(kw => descripcion.includes(kw));
+        // Filtrado estricto en 2 niveles:
+        // 1. Keywords directos → pasa siempre (alta relevancia)
+        const encajeDirecto = KEYWORDS_DIRECTOS.some(kw => descripcion.includes(kw));
+
+        // 2. Keywords amplios → solo si es de Valencia
         const esValenciana = KEYWORDS_VALENCIA.some(kw =>
           descripcion.includes(kw) || organismo.includes(kw)
         );
+        const encajeAmplio = esValenciana && KEYWORDS_AMPLIOS.some(kw => descripcion.includes(kw));
 
-        if (!esRelevante && !esValenciana) continue;
+        if (!encajeDirecto && !encajeAmplio) continue;
 
         // Determinar el organismo más específico
         const org = conv.nivel3 || conv.nivel2 || conv.nivel1 || 'No especificado';
