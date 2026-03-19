@@ -10,9 +10,22 @@ function calcularAlertaPlazo(fechaPlazo) {
   return diasRestantes <= 15 && diasRestantes >= 0;
 }
 
-async function ejecutarBusqueda() {
+async function ejecutarBusqueda({ forzar = false } = {}) {
   const inicio = Date.now();
   console.log(`\n🔍 [${new Date().toISOString()}] Iniciando búsqueda de oportunidades...`);
+
+  // Evitar doble ejecución el mismo día salvo que sea búsqueda manual (forzar=true)
+  if (!forzar) {
+    const hoy = new Date().toISOString().split('T')[0];
+    const yaEjecutada = await query(
+      "SELECT id FROM busquedas WHERE fecha = $1 AND errores IS NULL",
+      [hoy]
+    );
+    if (yaEjecutada.rows.length > 0) {
+      console.log(`⏭️  Ya se ejecutó una búsqueda exitosa hoy (${hoy}), saltando.`);
+      return { encontradas: 0, guardadas: 0, duracion: 0, saltada: true };
+    }
+  }
 
   try {
     const oportunidades = await buscarOportunidades();

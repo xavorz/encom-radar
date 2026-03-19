@@ -43,19 +43,15 @@ PERFIL DE LA EMPRESA:
 ${PERFIL_ENCOM}
 
 TAREA:
-Busca en internet LICITACIONES PÚBLICAS abiertas a fecha ${hoy} relevantes para una empresa de eventos. Haz búsquedas específicas en:
+Busca en internet LICITACIONES PÚBLICAS con plazo abierto a fecha ${hoy} relevantes para Encom. Usa estas búsquedas concretas:
 
-1. contrataciondelestado.es — busca licitaciones abiertas con términos: "organización de eventos", "servicios de producción", "gestión cultural", "actividades culturales", "servicios audiovisuales", "protocolo y eventos"
-2. Perfil del contratante del Ayuntamiento de Valencia — busca contratos de servicios relacionados con eventos, cultura, turismo, promoción
-3. Plataforma de contratación de la Generalitat Valenciana — busca licitaciones de servicios culturales, eventos, turismo
-4. Diputación de Valencia — contratos de eventos y cultura
+1. Busca en Google: site:contrataciondelestado.es "organización de eventos" OR "producción de eventos" OR "gestión cultural" OR "actividades culturales" 2025 2026
+2. Busca en Google: site:contrataciondelestado.es "Valencia" "eventos" OR "cultura" OR "turismo" licitación abierta 2026
+3. Busca: "perfil contratante" "Ayuntamiento de Valencia" eventos OR cultura OR turismo licitación 2026
+4. Busca: "licitación" "Generalitat Valenciana" OR "GVA" eventos OR festivales OR cultura 2026 abierta
+5. Busca: licitación pública España "organización de eventos" OR "gestión de eventos" OR "producción técnica eventos" abierta 2026
 
-Incluye también licitaciones de servicios de:
-- Producción técnica de eventos
-- Comunicación y marketing de eventos institucionales
-- Gestión de espacios culturales
-- Servicios de hostelería y catering para eventos institucionales
-- Diseño y montaje de stands/ferias
+Para cada licitación encontrada, verifica que esté realmente abierta (plazo no vencido) y que sea adjudicable a una empresa de eventos privada (no solo para personas físicas o entidades sin ánimo de lucro).
 
 ${CRITERIOS_RATING}
 
@@ -155,17 +151,21 @@ function parsearRespuesta(textoCompleto) {
     }));
 }
 
-async function ejecutarBloqueBusqueda(bloque, hoy) {
+function esperar(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function ejecutarBloqueBusqueda(bloque, hoy, intentos = 0) {
   console.log(`  🔎 Buscando: ${bloque.nombre}...`);
 
   try {
     const response = await client.messages.create({
       model: 'claude-sonnet-4-20250514',
-      max_tokens: 8000,
+      max_tokens: 6000,
       tools: [{
         type: 'web_search_20250305',
         name: 'web_search',
-        max_uses: 20
+        max_uses: 6
       }],
       messages: [{
         role: 'user',
@@ -185,6 +185,13 @@ async function ejecutarBloqueBusqueda(bloque, hoy) {
     return resultados;
 
   } catch (err) {
+    // Reintento automático en rate limit (máx 2 intentos)
+    if (err.status === 429 && intentos < 2) {
+      const espera = (intentos + 1) * 20000; // 20s, 40s
+      console.log(`  ⏳ Rate limit en ${bloque.nombre}, esperando ${espera/1000}s...`);
+      await esperar(espera);
+      return ejecutarBloqueBusqueda(bloque, hoy, intentos + 1);
+    }
     console.error(`  ❌ Error en ${bloque.nombre}: ${err.message}`);
     return [];
   }
@@ -192,12 +199,18 @@ async function ejecutarBloqueBusqueda(bloque, hoy) {
 
 async function buscarOportunidades() {
   const hoy = new Date().toISOString().split('T')[0];
-  console.log(`🔍 Iniciando búsqueda en 3 bloques...`);
+  console.log(`🔍 Iniciando búsqueda en 3 bloques (secuencial)...`);
 
-  // Ejecutar los 3 bloques en paralelo
-  const resultados = await Promise.all(
-    BLOQUES_BUSQUEDA.map(bloque => ejecutarBloqueBusqueda(bloque, hoy))
-  );
+  // Ejecutar secuencialmente con pausa de 15s entre bloques para evitar rate limit
+  const resultados = [];
+  for (const bloque of BLOQUES_BUSQUEDA) {
+    const res = await ejecutarBloqueBusqueda(bloque, hoy);
+    resultados.push(res);
+    if (bloque !== BLOQUES_BUSQUEDA[BLOQUES_BUSQUEDA.length - 1]) {
+      console.log(`  ⏸️  Pausa 15s antes del siguiente bloque...`);
+      await esperar(15000);
+    }
+  }
 
   // Combinar y deduplicar por título similar
   const todas = resultados.flat();
@@ -217,6 +230,9 @@ async function buscarOportunidades() {
 }
 
 async function generarInforme(oportunidad) {
+  // Usamos haiku para informes (más barato, no necesita web search para generar el plan)
+  const MODEL_INFORME = 'claude-haiku-4-5-20251001';
+
   const prompt = `Eres un consultor estratégico especializado en licitaciones públicas y subvenciones para empresas de eventos.
 
 PERFIL DE ENCOM:
@@ -259,13 +275,16 @@ Devuelve SOLO un JSON válido (sin markdown, sin bloques de código):
 SOLO JSON, sin texto adicional.`;
 
   try {
+    // Esperar 15s para no solapar con posibles búsquedas en curso
+    await esperar(15000);
+
     const response = await client.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: MODEL_INFORME,
       max_tokens: 4000,
       tools: [{
         type: 'web_search_20250305',
         name: 'web_search',
-        max_uses: 10
+        max_uses: 3
       }],
       messages: [{
         role: 'user',
@@ -287,7 +306,7 @@ SOLO JSON, sin texto adicional.`;
       // Intentar con un prompt más directo sin web search
       console.log('⚠️ Respuesta vacía, reintentando sin web search...');
       const retry = await client.messages.create({
-        model: 'claude-sonnet-4-20250514',
+        model: MODEL_INFORME,
         max_tokens: 4000,
         messages: [{
           role: 'user',
@@ -330,6 +349,12 @@ Devuelve SOLO este JSON:
 
     return informe;
   } catch (err) {
+    // Reintento en rate limit
+    if (err.status === 429) {
+      console.log('⏳ Rate limit en informe, esperando 30s...');
+      await esperar(30000);
+      return generarInforme(oportunidad); // un único reintento
+    }
     console.error('❌ Error generando informe:', err.message);
     throw err;
   }

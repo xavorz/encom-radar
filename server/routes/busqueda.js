@@ -7,7 +7,7 @@ const { query } = require('../services/db');
 router.post('/ejecutar', async (req, res) => {
   try {
     console.log('🔍 Búsqueda manual iniciada...');
-    const resultado = await ejecutarBusqueda();
+    const resultado = await ejecutarBusqueda({ forzar: true });
     res.json({
       ok: true,
       mensaje: `Búsqueda completada: ${resultado.encontradas} encontradas, ${resultado.guardadas} nuevas guardadas`,
