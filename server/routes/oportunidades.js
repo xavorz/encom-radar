@@ -159,6 +159,24 @@ router.patch('/:id', async (req, res) => {
   }
 });
 
+// DELETE /api/oportunidades/purgar — Borrar todas las no guardadas
+router.delete('/purgar', async (req, res) => {
+  try {
+    const { todas } = req.query; // ?todas=true borra TODO
+    let result;
+    if (todas === 'true') {
+      result = await query('DELETE FROM oportunidades');
+    } else {
+      result = await query("DELETE FROM oportunidades WHERE estado IN ('nueva', 'vista')");
+    }
+    console.log(`🧹 Purgadas ${result.rowCount} oportunidades`);
+    res.json({ borradas: result.rowCount });
+  } catch (err) {
+    console.error('Error purgando:', err.message);
+    res.status(500).json({ error: 'Error purgando oportunidades' });
+  }
+});
+
 // POST /api/oportunidades/:id/informe — Generar informe con Claude
 router.post('/:id/informe', async (req, res) => {
   try {
