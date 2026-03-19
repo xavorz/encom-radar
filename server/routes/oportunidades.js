@@ -172,15 +172,25 @@ router.post('/:id/informe', async (req, res) => {
 
     const informe = await generarInforme(oportunidad);
 
-    await query(
-      'UPDATE oportunidades SET informe = $1, updated_at = NOW() WHERE id = $2',
-      [JSON.stringify(informe), req.params.id]
-    );
+    // Si el informe incluye url_convocatoria, actualizar la oportunidad
+    const updates = { informe: JSON.stringify(informe) };
+    let sql = 'UPDATE oportunidades SET informe = $1, updated_at = NOW()';
+    const params = [JSON.stringify(informe)];
+
+    if (informe.url_convocatoria) {
+      sql += ', url_fuente = $2 WHERE id = $3';
+      params.push(informe.url_convocatoria, req.params.id);
+    } else {
+      sql += ' WHERE id = $2';
+      params.push(req.params.id);
+    }
+
+    await query(sql, params);
 
     res.json(informe);
   } catch (err) {
-    console.error('Error generando informe:', err.message);
-    res.status(500).json({ error: 'Error generando informe' });
+    console.error('Error generando informe:', err.message, err.stack);
+    res.status(500).json({ error: 'Error generando informe: ' + err.message });
   }
 });
 

@@ -50,7 +50,12 @@ export default function DetalleOportunidad({ id, onBack }) {
     setGenerandoInforme(true);
     try {
       const informe = await api.generarInforme(id);
-      setOp(prev => ({ ...prev, informe }));
+      setOp(prev => ({
+        ...prev,
+        informe,
+        // Si el informe trae URL exacta, actualizar
+        url_fuente: informe.url_convocatoria || prev.url_fuente
+      }));
     } catch (err) {
       setError('Error generando informe: ' + err.message);
     }
