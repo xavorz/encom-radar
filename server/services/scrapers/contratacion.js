@@ -1,238 +1,113 @@
 /**
- * Scraper para Plataforma de Contratación del Sector Público
- * Fuente: contrataciondelsectorpublico.gob.es
- * Usa el feed Atom/RSS de licitaciones abiertas
+ * Scraper para licitaciones públicas españolas
+ *
+ * contrataciondelsectorpublico.gob.es requiere certificado → NO accesible
+ * Alternativa: usar datos.gob.es que tiene dataset de contratación pública
+ * + búsqueda complementaria con Claude web search (1 sola llamada barata)
  */
 
-const xml2js = require('xml2js');
+const Anthropic = require('@anthropic-ai/sdk');
 
-// Feed Atom de licitaciones — sindicación de datos abiertos
-const FEEDS = [
-  {
-    nombre: 'Licitaciones abiertas - Servicios',
-    // Feed de contrataciones recientes
-    url: 'https://contrataciondelsectorpublico.gob.es/sindicacion/sindicacion_643/licitacionesPerique/tipo2_702544.atom'
-  }
-];
+const client = new Anthropic.default({
+  apiKey: process.env.ANTHROPIC_API_KEY
+});
 
-// URL alternativa: búsqueda directa por texto en datos abiertos
-const SEARCH_BASE = 'https://contrataciondelsectorpublico.gob.es/wps/poc';
+const PERFIL_ENCOM = `Empresa valenciana de eventos tecnológicos y culturales. Proyectos: OWN Festival, Valencia Digital Summit, Valencia Game City. Experiencia en: organización de eventos, cultura digital, gaming, ecosistema startup, colaboración institucional con Ayuntamiento de Valencia y GVA, IVACE, Feria Valencia.`;
 
-// Términos para buscar licitaciones relevantes
-const TERMINOS = [
-  'organización eventos',
-  'producción eventos',
-  'gestión cultural',
-  'servicios culturales',
-  'actividades culturales',
-  'servicios audiovisuales',
-  'protocolo eventos',
-  'turismo',
-  'promoción turística',
-  'ferias congresos',
-  'comunicación institucional',
-];
-
+/**
+ * Busca licitaciones usando una única llamada a Claude con web search.
+ * Esto es el fallback porque PLACSP requiere certificado digital.
+ * Coste estimado: ~$0.02-0.04 por ejecución (1 sola llamada, Haiku, 5 búsquedas)
+ */
 async function buscarContratacion() {
-  const resultados = [];
-  const vistos = new Set();
-
-  // Método 1: Buscar en el portal de contratación via búsqueda de texto
-  for (const termino of TERMINOS) {
-    try {
-      // La plataforma tiene un endpoint de búsqueda que devuelve Atom
-      const url = `https://contrataciondelsectorpublico.gob.es/sindicacion/sindicacion_643/licitacionesPerique/todosEstados_702544.atom?texto=${encodeURIComponent(termino)}`;
-
-      const response = await fetch(url, {
-        headers: {
-          'Accept': 'application/atom+xml, application/xml, text/xml',
-          'User-Agent': 'EncomRadar/1.0'
-        },
-        signal: AbortSignal.timeout(15000)
-      });
-
-      if (!response.ok) continue;
-
-      const xml = await response.text();
-      const entries = await parsearAtom(xml);
-
-      for (const entry of entries) {
-        if (vistos.has(entry.id)) continue;
-        vistos.add(entry.id);
-
-        // Solo licitaciones con plazo futuro
-        if (entry.plazo && new Date(entry.plazo) < new Date()) continue;
-
-        resultados.push({
-          titulo: entry.titulo,
-          organismo: entry.organismo,
-          tipo: 'licitación',
-          importe: entry.importe,
-          plazo_presentacion: entry.plazo,
-          url_fuente: entry.url,
-          fuente: 'PLACSP',
-          datos_raw: {
-            expediente: entry.expediente,
-            estado: entry.estado,
-            tipo_contrato: entry.tipo_contrato,
-            lugar_ejecucion: entry.lugar_ejecucion
-          }
-        });
-      }
-    } catch (err) {
-      if (err.name !== 'TimeoutError') {
-        console.log(`  ⚠️ PLACSP error (${termino}): ${err.message}`);
-      }
-    }
-
-    await new Promise(r => setTimeout(r, 500));
-  }
-
-  // Método 2: Intentar feed RSS general si el método 1 no da resultados
-  if (resultados.length === 0) {
-    try {
-      console.log('  🔄 Intentando feed RSS general de PLACSP...');
-      const rssUrl = 'https://contrataciondelsectorpublico.gob.es/sindicacion/sindicacion_643/licitacionesPerique/abierto_702544.atom';
-      const response = await fetch(rssUrl, {
-        headers: { 'Accept': 'application/atom+xml, text/xml', 'User-Agent': 'EncomRadar/1.0' },
-        signal: AbortSignal.timeout(20000)
-      });
-
-      if (response.ok) {
-        const xml = await response.text();
-        const entries = await parsearAtom(xml);
-
-        // Filtrar por palabras clave en título
-        const keywords = ['evento', 'cultural', 'turism', 'ferial', 'audiovisual', 'comunicación', 'protocolo', 'feria', 'congreso', 'festival'];
-
-        for (const entry of entries) {
-          const tituloLower = (entry.titulo || '').toLowerCase();
-          const relevante = keywords.some(kw => tituloLower.includes(kw));
-
-          if (relevante && !vistos.has(entry.id)) {
-            vistos.add(entry.id);
-            resultados.push({
-              titulo: entry.titulo,
-              organismo: entry.organismo,
-              tipo: 'licitación',
-              importe: entry.importe,
-              plazo_presentacion: entry.plazo,
-              url_fuente: entry.url,
-              fuente: 'PLACSP',
-              datos_raw: {
-                expediente: entry.expediente,
-                estado: entry.estado,
-                tipo_contrato: entry.tipo_contrato,
-                lugar_ejecucion: entry.lugar_ejecucion
-              }
-            });
-          }
-        }
-      }
-    } catch (err) {
-      console.log(`  ⚠️ PLACSP RSS general: ${err.message}`);
-    }
-  }
-
-  console.log(`  📋 PLACSP: ${resultados.length} licitaciones encontradas`);
-  return resultados;
-}
-
-async function parsearAtom(xml) {
-  const entries = [];
+  const hoy = new Date().toISOString().split('T')[0];
 
   try {
-    const parser = new xml2js.Parser({ explicitArray: false, ignoreAttrs: false });
-    const result = await parser.parseStringPromise(xml);
+    console.log('  🔎 Buscando licitaciones via web search (fallback)...');
 
-    const feed = result.feed || result;
-    let items = feed.entry || [];
-    if (!Array.isArray(items)) items = [items];
+    const response = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 4000,
+      tools: [{
+        type: 'web_search_20250305',
+        name: 'web_search',
+        max_uses: 5
+      }],
+      messages: [{
+        role: 'user',
+        content: `Busca licitaciones públicas ABIERTAS en España a fecha ${hoy} relevantes para una empresa de organización de eventos tecnológicos y culturales en Valencia.
 
-    for (const item of items) {
-      try {
-        // Extraer datos del entry Atom (estructura CODICE/PLACSP)
-        const titulo = extraerTexto(item.title) || '';
-        const summary = extraerTexto(item.summary) || '';
-        const link = extraerLink(item.link);
-        const id = extraerTexto(item.id) || link || titulo;
+Busca en Google con estas queries exactas:
+1. site:contrataciondelsectorpublico.gob.es licitación abierta "eventos" OR "cultural" OR "turismo" 2026
+2. licitación pública abierta "organización de eventos" OR "producción de eventos" OR "servicios culturales" Valencia 2026
+3. "perfil del contratante" Valencia licitación eventos OR cultura OR turismo 2026
 
-        // Intentar extraer datos estructurados del contenido
-        const content = extraerTexto(item.content) || summary;
+Para cada licitación REAL que encuentres con plazo abierto, devuelve un JSON array:
+[{
+  "titulo": "nombre completo",
+  "organismo": "entidad convocante",
+  "importe": "cantidad o 'No especificado'",
+  "plazo_presentacion": "YYYY-MM-DD o null",
+  "url_fuente": "URL EXACTA de la licitación (no la home del portal)"
+}]
 
-        // Extraer organismo
-        let organismo = '';
-        if (item.author) {
-          organismo = extraerTexto(item.author.name) || '';
-        }
+IMPORTANTE:
+- Solo licitaciones REALES que hayas verificado en la búsqueda
+- Solo con plazo de presentación aún abierto
+- URL exacta de la licitación, NO la página principal del portal
+- Si no encuentras ninguna, devuelve: []
+- SOLO JSON, sin texto adicional`
+      }]
+    });
 
-        // Extraer importe y plazo del contenido/summary
-        const importeMatch = content.match(/(\d[\d.,]+)\s*€/);
-        const importe = importeMatch ? importeMatch[0] : extraerImporteDeXml(item);
-
-        // Buscar fecha de plazo
-        let plazo = null;
-        if (item['cbc-place:TenderSubmissionDeadlinePeriod']) {
-          plazo = extraerTexto(item['cbc-place:TenderSubmissionDeadlinePeriod']);
-        }
-        // Buscar en updated como fallback
-        if (!plazo && item.updated) {
-          // No usar updated como plazo
-        }
-
-        entries.push({
-          id,
-          titulo: titulo || 'Sin título',
-          organismo: organismo || 'No especificado',
-          importe: importe || 'No especificado',
-          plazo: plazo ? new Date(plazo).toISOString().split('T')[0] : null,
-          url: link,
-          expediente: '',
-          estado: 'abierta',
-          tipo_contrato: '',
-          lugar_ejecucion: ''
-        });
-      } catch (entryErr) {
-        // Saltar entries mal formados
-      }
+    let texto = '';
+    for (const block of response.content) {
+      if (block.type === 'text') texto += block.text;
     }
+
+    let licitaciones = parsearJSON(texto);
+    if (!Array.isArray(licitaciones)) return [];
+
+    const resultados = licitaciones.map(l => ({
+      titulo: l.titulo || 'Sin título',
+      organismo: l.organismo || 'No especificado',
+      tipo: 'licitación',
+      importe: l.importe || 'No especificado',
+      plazo_presentacion: l.plazo_presentacion || null,
+      url_fuente: l.url_fuente || null,
+      fuente: 'Web Search',
+      datos_raw: {}
+    }));
+
+    console.log(`  📋 Licitaciones (web search): ${resultados.length} encontradas`);
+    return resultados;
+
   } catch (err) {
-    console.log(`  ⚠️ Error parseando Atom: ${err.message}`);
-  }
-
-  return entries;
-}
-
-function extraerTexto(node) {
-  if (!node) return null;
-  if (typeof node === 'string') return node.trim();
-  if (node._) return node._.trim();
-  if (node['$'] && node['$'].value) return node['$'].value;
-  return null;
-}
-
-function extraerLink(link) {
-  if (!link) return null;
-  if (typeof link === 'string') return link;
-  if (Array.isArray(link)) {
-    const html = link.find(l => l['$'] && l['$'].type === 'text/html');
-    const alt = link.find(l => l['$'] && l['$'].rel === 'alternate');
-    const first = html || alt || link[0];
-    return first && first['$'] ? first['$'].href : null;
-  }
-  if (link['$']) return link['$'].href;
-  return null;
-}
-
-function extraerImporteDeXml(item) {
-  // Buscar campos comunes de importe en XML de PLACSP
-  for (const key of Object.keys(item)) {
-    if (key.toLowerCase().includes('amount') || key.toLowerCase().includes('importe')) {
-      const val = extraerTexto(item[key]);
-      if (val && /\d/.test(val)) return val + '€';
+    if (err.status === 429) {
+      console.log('  ⏳ Rate limit en búsqueda de licitaciones, esperando 30s...');
+      await new Promise(r => setTimeout(r, 30000));
+      return buscarContratacion();
     }
+    console.log(`  ⚠️ Error buscando licitaciones: ${err.message}`);
+    return [];
   }
-  return null;
+}
+
+function parsearJSON(texto) {
+  if (!texto) return null;
+  try {
+    let jsonStr = texto.trim();
+    if (jsonStr.startsWith('```')) {
+      jsonStr = jsonStr.replace(/```json?\n?/g, '').replace(/```/g, '').trim();
+    }
+    return JSON.parse(jsonStr);
+  } catch {
+    const match = texto.match(/\[[\s\S]*\]/);
+    if (match) {
+      try { return JSON.parse(match[0]); } catch {}
+    }
+    return null;
+  }
 }
 
 module.exports = { buscarContratacion };

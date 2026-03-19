@@ -32,28 +32,41 @@ async function ejecutarBusqueda({ forzar = false } = {}) {
 
   try {
     // FASE 1: Scraping directo de fuentes públicas (GRATIS, sin tokens)
-    console.log('\n📡 FASE 1: Scraping directo de fuentes públicas...');
+    // FUENTE 1: BDNS (API pública gratuita, sin tokens)
+    console.log('\n📡 Fuente 1: BDNS (API pública, gratis)...');
+    let datosBDNS = [];
+    try {
+      datosBDNS = await buscarBDNS();
+    } catch (err) {
+      console.error('  ❌ BDNS falló:', err.message);
+    }
 
-    const [resBDNS, resPLACSP, resDOGV] = await Promise.allSettled([
-      buscarBDNS(),
-      buscarContratacion(),
-      buscarDOGV()
-    ]);
+    // FUENTE 2: Licitaciones via web search (Haiku, ~$0.02)
+    console.log('\n📡 Fuente 2: Licitaciones (web search)...');
+    await new Promise(r => setTimeout(r, 5000)); // pausa para rate limit
+    let datosLicitaciones = [];
+    try {
+      datosLicitaciones = await buscarContratacion();
+    } catch (err) {
+      console.error('  ❌ Licitaciones falló:', err.message);
+    }
 
-    const todasRaw = [
-      ...(resBDNS.status === 'fulfilled' ? resBDNS.value : []),
-      ...(resPLACSP.status === 'fulfilled' ? resPLACSP.value : []),
-      ...(resDOGV.status === 'fulfilled' ? resDOGV.value : [])
-    ];
+    // FUENTE 3: Subvenciones autonómicas via web search (Haiku, ~$0.02)
+    console.log('\n📡 Fuente 3: Subvenciones autonómicas (web search)...');
+    await new Promise(r => setTimeout(r, 10000)); // pausa mayor para rate limit
+    let datosGVA = [];
+    try {
+      datosGVA = await buscarDOGV();
+    } catch (err) {
+      console.error('  ❌ GVA/DOGV falló:', err.message);
+    }
 
-    if (resBDNS.status === 'rejected') console.error('  ❌ BDNS falló:', resBDNS.reason?.message);
-    if (resPLACSP.status === 'rejected') console.error('  ❌ PLACSP falló:', resPLACSP.reason?.message);
-    if (resDOGV.status === 'rejected') console.error('  ❌ DOGV falló:', resDOGV.reason?.message);
+    const todasRaw = [...datosBDNS, ...datosLicitaciones, ...datosGVA];
 
-    console.log(`\n📊 Total scrapeado: ${todasRaw.length} oportunidades brutas`);
-    console.log(`  - BDNS: ${resBDNS.status === 'fulfilled' ? resBDNS.value.length : 'error'}`);
-    console.log(`  - PLACSP: ${resPLACSP.status === 'fulfilled' ? resPLACSP.value.length : 'error'}`);
-    console.log(`  - DOGV/GVA: ${resDOGV.status === 'fulfilled' ? resDOGV.value.length : 'error'}`);
+    console.log(`\n📊 Total recopilado: ${todasRaw.length} oportunidades brutas`);
+    console.log(`  - BDNS: ${datosBDNS.length}`);
+    console.log(`  - Licitaciones: ${datosLicitaciones.length}`);
+    console.log(`  - GVA/DOGV: ${datosGVA.length}`);
 
     if (todasRaw.length === 0) {
       console.log('⚠️ No se encontraron oportunidades en ninguna fuente');
