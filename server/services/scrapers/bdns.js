@@ -4,40 +4,99 @@
  *
  * Estructura real: content[].{ id, numeroConvocatoria, descripcion, nivel1/2/3, fechaRecepcion }
  * NO acepta búsqueda por texto → obtenemos las últimas y filtramos + puntuamos localmente
+ *
+ * FILTRO ESTRICTO: solo convocatorias abiertas a concurrencia competitiva
+ * que encajen con el perfil de Encom (eventos, cultura, turismo, innovación).
+ * Excluimos: nominativas, convenios, deportes, ganadería, escuelas, etc.
  */
 
 const BDNS_API = 'https://www.infosubvenciones.es/bdnstrans/api/convocatorias/busqueda';
 
+// === FILTROS DE EXCLUSIÓN ===
+// Si la descripción contiene alguna de estas, la descartamos directamente
+const EXCLUIR_KEYWORDS = [
+  // Subvenciones directas/nominativas (no son concurrencia competitiva)
+  'subv. nom.', 'subv nom', 'subvención nominativa', 'subvencion nominativa',
+  'concesión directa', 'concesion directa', 'nominativa a favor',
+  'nominativa al ayuntamiento', 'nominativa a la',
+  // Convenios específicos (no son convocatorias abiertas)
+  'convenio entre', 'convenio de colaboración entre', 'convenio con',
+  'convenio de subvención entre',
+  // Sectores claramente fuera de perfil
+  'ganadería', 'ganadero', 'ganaderas', 'bovino', 'bovina', 'porcino',
+  'ovino', 'avícola', 'apícola', 'agrícola', 'explotaciones agrarias',
+  'regadío', 'riego', 'fertilizante',
+  // Deportes (salvo esports/gaming que ya se capturan en TIER1)
+  'club deportivo', 'club balonmano', 'club baloncesto', 'club tenis',
+  'club de fútbol', 'futsal', 'federación de deporte', 'federación de balonmano',
+  'federación de baloncesto', 'liga acb', 'liga femenina',
+  'balonmano', 'baloncesto', 'fútbol sala',
+  // Educación/colegios
+  'ceip ', 'colegio ', 'mantenimiento del edif', 'escuela infantil',
+  // Partidos políticos / sindicatos
+  'secciones sindicales', 'grupo político', 'aportaciones secciones',
+  'asignación grupo', 'plan actuación icasel',
+  // Bancos de alimentos / asistencia social directa
+  'banco de alimentos',
+  // Obras municipales e infraestructura pura
+  'reparación de muro', 'rehabilitació camí', 'plan provincial de obras',
+  'tratamiento de aguas', 'residuos sólidos', 'recogida de residuos',
+  // Cooperación internacional (fuera de perfil)
+  'cooperación internacional',
+  // Premios literarios / poesía / cómic (muy nicho)
+  'premio narrativa', 'premio de poesía', 'premio de poesia',
+  'premio cómic', 'premio literario',
+  // Sanidad
+  'enfermos y familiar', 'personas diagnost', 'cirugía',
+];
+
 // === SISTEMA DE SCORING LOCAL (sin IA) ===
 
-// Tier 1: encaje directo con Encom → +4 puntos cada match
+// Tier 1: encaje DIRECTO con Encom → +4 puntos cada match
 const TIER1 = [
-  'organización de eventos', 'producción de eventos', 'festival',
-  'gaming', 'videojuego', 'startup', 'ecosistema emprendedor',
+  'organización de eventos', 'producción de eventos', 'festival de',
+  'festivales', 'gaming', 'videojuego', 'esports',
+  'startup', 'ecosistema emprendedor',
   'cultura digital', 'eventos culturales', 'eventos tecnológic',
   'industrias creativas', 'industria cultural',
+  'own festival', 'valencia digital summit',
 ];
 
 // Tier 2: encaje alto → +2 puntos cada match
 const TIER2 = [
-  'feria', 'congreso', 'espectáculo', 'artes escénic',
+  'feria de', 'congreso de', 'jornadas de',
+  'espectáculo', 'artes escénic',
   'música en vivo', 'promoción turística', 'turismo cultural',
   'actividades culturales', 'transformación digital',
-  'audiovisual', 'producción artística',
+  'audiovisual', 'producción artística', 'producción audiovisual',
+  'sector cultural', 'programación cultural',
+  'digitalización de empresas', 'digitalización de pyme',
+  'internacionalización',
 ];
 
 // Tier 3: encaje parcial → +1 punto cada match
+// MÁS RESTRICTIVO: requiere contexto, no solo la palabra suelta
 const TIER3 = [
-  'cultural', 'cultura', 'turismo', 'innovación', 'digital',
-  'creativ', 'juventud', 'emprendimiento', 'ocio', 'patrimonio',
+  'actividades culturales', 'programas culturales', 'proyectos culturales',
+  'promoción turística', 'sector turístico',
+  'innovación empresarial', 'innovación tecnológica',
+  'emprendimiento', 'emprendedores',
+  'economía creativa', 'industrias creativas',
+  'ocio y entretenimiento',
+  'patrimonio cultural', 'patrimonio históric',
 ];
 
 // Bonus Valencia → +3 puntos
 const VALENCIA = [
   'valencia', 'valencian', 'ivace', 'ivaj', 'gva', 'generalitat',
-  'diputació', 'diputacion de valencia', 'feria valencia',
+  'diputació de valencia', 'diputacion de valencia', 'feria valencia',
   'comunitat valenciana', 'conselleria',
 ];
+
+function esExcluida(descripcion) {
+  const desc = descripcion.toLowerCase();
+  return EXCLUIR_KEYWORDS.some(kw => desc.includes(kw));
+}
 
 function calcularScore(descripcion, organismo) {
   const texto = `${descripcion} ${organismo}`.toLowerCase();
@@ -50,10 +109,8 @@ function calcularScore(descripcion, organismo) {
   const esValenciana = VALENCIA.some(kw => texto.includes(kw));
   if (esValenciana) puntos += 3;
 
-  // Convertir puntos a rating 1-10
-  // 1-2 puntos → rating 5 | 3-4 → 6 | 5-6 → 7 | 7-9 → 8 | 10-12 → 9 | 13+ → 10
-  if (puntos <= 0) return { rating: 0, esValenciana };
-  if (puntos <= 2) return { rating: 5, esValenciana };
+  // Más exigente: mínimo rating 6 para entrar
+  if (puntos <= 2) return { rating: 0, esValenciana };  // no llega
   if (puntos <= 4) return { rating: 6, esValenciana };
   if (puntos <= 6) return { rating: 7, esValenciana };
   if (puntos <= 9) return { rating: 8, esValenciana };
@@ -65,7 +122,7 @@ function generarJustificacion(descripcion, rating, esValenciana) {
   const parts = [];
   if (rating >= 9) parts.push('Encaje directo con el perfil de Encom');
   else if (rating >= 7) parts.push('Encaje alto con el perfil de Encom');
-  else parts.push('Encaje parcial, explorable con adaptación');
+  else parts.push('Oportunidad relevante para el sector de Encom');
 
   if (esValenciana) parts.push('Comunitat Valenciana (territorio prioritario)');
 
@@ -75,6 +132,7 @@ function generarJustificacion(descripcion, rating, esValenciana) {
   if (desc.includes('turismo') || desc.includes('turístic')) parts.push('Sector turístico');
   if (desc.includes('digital') || desc.includes('innovación')) parts.push('Innovación/digitalización');
   if (desc.includes('gaming') || desc.includes('videojuego')) parts.push('Gaming/videojuegos');
+  if (desc.includes('audiovisual')) parts.push('Sector audiovisual');
 
   return parts.join('. ') + '.';
 }
@@ -84,6 +142,8 @@ async function buscarBDNS() {
   const vistos = new Set();
   const PAGINAS = 5;
   const PAGE_SIZE = 100;
+  let totalRevisadas = 0;
+  let totalExcluidas = 0;
 
   for (let page = 0; page < PAGINAS; page++) {
     try {
@@ -108,15 +168,23 @@ async function buscarBDNS() {
         const id = conv.numeroConvocatoria || conv.id;
         if (!id || vistos.has(id)) continue;
         vistos.add(id);
+        totalRevisadas++;
 
         const descripcion = conv.descripcion || '';
         const org = conv.nivel3 || conv.nivel2 || conv.nivel1 || 'No especificado';
         const organismo = `${conv.nivel1 || ''} ${conv.nivel2 || ''} ${conv.nivel3 || ''}`;
 
+        // PASO 1: Excluir basura antes de puntuar
+        if (esExcluida(descripcion)) {
+          totalExcluidas++;
+          continue;
+        }
+
+        // PASO 2: Scoring
         const { rating, esValenciana } = calcularScore(descripcion, organismo);
 
-        // Solo rating >= 5
-        if (rating < 5) continue;
+        // Solo rating >= 6 (más estricto que antes)
+        if (rating < 6) continue;
 
         resultados.push({
           titulo: descripcion,
@@ -144,7 +212,7 @@ async function buscarBDNS() {
   // Ordenar por rating descendente
   resultados.sort((a, b) => b.rating - a.rating);
 
-  console.log(`  📋 BDNS: ${resultados.length} convocatorias con rating >= 5 (de ${vistos.size} revisadas)`);
+  console.log(`  📋 BDNS: ${resultados.length} convocatorias relevantes (de ${totalRevisadas} revisadas, ${totalExcluidas} excluidas por filtros)`);
   return resultados;
 }
 

@@ -253,4 +253,5 @@ function parsearJSON(texto) {
   }
 }
 
-module.exports = { analizarOportunidades, generarInforme };
+// analizarOportunidades ya no se usa (scoring local en cada scraper)
+module.exports = { generarInforme };

@@ -90,28 +90,31 @@ async function buscarContratacion() {
       }],
       messages: [{
         role: 'user',
-        content: `Busca licitaciones públicas ABIERTAS en España a fecha ${hoy} relevantes para una empresa de organización de eventos tecnológicos y culturales en Valencia.
+        content: `Busca licitaciones públicas y contratos menores ABIERTOS en España a fecha ${hoy} para una empresa que organiza eventos, festivales, producción audiovisual y experiencias culturales y tecnológicas.
 
-Busca en Google con estas queries exactas:
-1. site:contrataciondelsectorpublico.gob.es licitación abierta "eventos" OR "cultural" OR "turismo" 2026
-2. licitación pública abierta "organización de eventos" OR "producción de eventos" OR "servicios culturales" Valencia 2026
-3. "perfil del contratante" Valencia licitación eventos OR cultura OR turismo 2026
+Haz estas búsquedas web:
+1. licitación "organización de eventos" OR "producción de eventos" OR "servicios audiovisuales" abierta 2026
+2. contrato menor OR licitación "servicios culturales" OR "gestión cultural" OR "actividades culturales" Valencia OR Comunitat Valenciana 2026
+3. licitación pública "turismo" OR "promoción turística" OR "festival" ayuntamiento OR diputación 2026
+4. contrataciondelsectorpublico.gob.es eventos OR cultura OR audiovisual
 
-Para cada licitación REAL que encuentres con plazo abierto, devuelve un JSON array:
+Busca resultados reales en portales de contratación pública, perfiles del contratante de ayuntamientos, diputaciones y comunidades autónomas.
+
+Para cada licitación que encuentres con plazo aún abierto o reciente, devuelve SOLO un JSON array:
 [{
-  "titulo": "nombre completo",
-  "organismo": "entidad convocante",
+  "titulo": "nombre completo del contrato/licitación",
+  "organismo": "entidad contratante",
   "importe": "cantidad o 'No especificado'",
   "plazo_presentacion": "YYYY-MM-DD o null",
-  "url_fuente": "URL EXACTA de la licitación (no la home del portal)"
+  "url_fuente": "URL directa de la licitación (no la home del portal)"
 }]
 
-IMPORTANTE:
-- Solo licitaciones REALES que hayas verificado en la búsqueda
-- Solo con plazo de presentación aún abierto
-- URL exacta de la licitación, NO la página principal del portal
+REGLAS:
+- Solo licitaciones REALES verificadas en tu búsqueda
+- Incluye contratos menores si los encuentras (son oportunidades rápidas)
+- URL directa, no genérica
 - Si no encuentras ninguna, devuelve: []
-- SOLO JSON, sin texto adicional`
+- Responde SOLO con el JSON, sin texto antes ni después`
       }]
     });
 
