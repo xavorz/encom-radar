@@ -95,6 +95,24 @@ router.get('/guardadas', async (req, res) => {
   }
 });
 
+// GET /api/oportunidades/purgar — Borrar todas (GET para poder usar desde el navegador)
+router.get('/purgar', async (req, res) => {
+  try {
+    const { todas } = req.query; // ?todas=true borra TODO
+    let result;
+    if (todas === 'true') {
+      result = await query('DELETE FROM oportunidades');
+    } else {
+      result = await query("DELETE FROM oportunidades WHERE estado IN ('nueva', 'vista')");
+    }
+    console.log(`🧹 Purgadas ${result.rowCount} oportunidades`);
+    res.json({ borradas: result.rowCount });
+  } catch (err) {
+    console.error('Error purgando:', err.message);
+    res.status(500).json({ error: 'Error purgando oportunidades' });
+  }
+});
+
 // GET /api/oportunidades/:id
 router.get('/:id', async (req, res) => {
   try {
@@ -156,24 +174,6 @@ router.patch('/:id', async (req, res) => {
   } catch (err) {
     console.error('Error actualizando oportunidad:', err.message);
     res.status(500).json({ error: 'Error actualizando oportunidad' });
-  }
-});
-
-// DELETE /api/oportunidades/purgar — Borrar todas las no guardadas
-router.delete('/purgar', async (req, res) => {
-  try {
-    const { todas } = req.query; // ?todas=true borra TODO
-    let result;
-    if (todas === 'true') {
-      result = await query('DELETE FROM oportunidades');
-    } else {
-      result = await query("DELETE FROM oportunidades WHERE estado IN ('nueva', 'vista')");
-    }
-    console.log(`🧹 Purgadas ${result.rowCount} oportunidades`);
-    res.json({ borradas: result.rowCount });
-  } catch (err) {
-    console.error('Error purgando:', err.message);
-    res.status(500).json({ error: 'Error purgando oportunidades' });
   }
 });
 
