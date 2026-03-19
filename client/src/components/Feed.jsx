@@ -2,10 +2,15 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../api';
 import OportunidadCard from './OportunidadCard';
 
+function extraerFecha(fecha) {
+  if (!fecha) return 'sin-fecha';
+  return fecha.substring(0, 10);
+}
+
 function agruparPorFecha(oportunidades) {
   const grupos = {};
   for (const op of oportunidades) {
-    const fecha = op.fecha_deteccion;
+    const fecha = extraerFecha(op.fecha_deteccion);
     if (!grupos[fecha]) grupos[fecha] = [];
     grupos[fecha].push(op);
   }
@@ -48,9 +53,12 @@ export default function Feed({ onSelect, resumen }) {
       if (estado) params.estado = estado;
       const data = await api.getOportunidades(params);
       setOportunidades(data);
-      // Expandir hoy por defecto
-      const hoy = new Date().toISOString().split('T')[0];
-      setExpandidos(prev => ({ ...prev, [hoy]: true }));
+      // Expandir todos los grupos por defecto
+      const grupos = {};
+      for (const op of data) {
+        grupos[extraerFecha(op.fecha_deteccion)] = true;
+      }
+      setExpandidos(grupos);
     } catch (err) {
       setError(err.message);
     }
