@@ -74,23 +74,19 @@ const TIER2 = [
   'internacionalización',
 ];
 
-// Tier 3: encaje parcial → +1 punto cada match
-// MÁS RESTRICTIVO: requiere contexto, no solo la palabra suelta
-const TIER3 = [
-  'actividades culturales', 'programas culturales', 'proyectos culturales',
-  'promoción turística', 'sector turístico',
-  'innovación empresarial', 'innovación tecnológica',
-  'emprendimiento', 'emprendedores',
-  'economía creativa', 'industrias creativas',
-  'ocio y entretenimiento',
-  'patrimonio cultural', 'patrimonio históric',
+// Tier 3: keywords de sector SUELTAS
+// A nivel nacional son ruido, pero combinadas con Valencia son relevantes
+const SECTOR_KEYWORDS = [
+  'cultural', 'cultura', 'turismo', 'turístic', 'innovación', 'innovacion',
+  'digital', 'creativ', 'juventud', 'emprendimiento', 'emprendedores',
+  'ocio', 'patrimonio', 'tecnológic', 'tecnologic',
 ];
 
-// Bonus Valencia → +3 puntos
+// Valencia identifiers
 const VALENCIA = [
   'valencia', 'valencian', 'ivace', 'ivaj', 'gva', 'generalitat',
   'diputació de valencia', 'diputacion de valencia', 'feria valencia',
-  'comunitat valenciana', 'conselleria',
+  'comunitat valenciana', 'conselleria', 'ivc',
 ];
 
 function esExcluida(descripcion) {
@@ -104,17 +100,24 @@ function calcularScore(descripcion, organismo) {
 
   for (const kw of TIER1) { if (texto.includes(kw)) puntos += 4; }
   for (const kw of TIER2) { if (texto.includes(kw)) puntos += 2; }
-  for (const kw of TIER3) { if (texto.includes(kw)) puntos += 1; }
 
   const esValenciana = VALENCIA.some(kw => texto.includes(kw));
-  if (esValenciana) puntos += 3;
+  const tieneSector = SECTOR_KEYWORDS.some(kw => texto.includes(kw));
 
-  // Más exigente: mínimo rating 6 para entrar
-  if (puntos <= 2) return { rating: 0, esValenciana };  // no llega
-  if (puntos <= 4) return { rating: 6, esValenciana };
-  if (puntos <= 6) return { rating: 7, esValenciana };
-  if (puntos <= 9) return { rating: 8, esValenciana };
-  if (puntos <= 12) return { rating: 9, esValenciana };
+  // REGLA CLAVE: Valencia + cualquier keyword de sector → siempre relevante
+  if (esValenciana && tieneSector) {
+    puntos += 5; // garantiza mínimo rating 7
+  } else if (esValenciana) {
+    puntos += 3; // Valencia sin sector → bonus menor
+  }
+  // Keywords de sector SOLAS (sin Valencia) no suman nada → evita ruido nacional
+
+  // Convertir puntos a rating
+  if (puntos <= 1) return { rating: 0, esValenciana };  // no llega
+  if (puntos <= 3) return { rating: 6, esValenciana };
+  if (puntos <= 5) return { rating: 7, esValenciana };
+  if (puntos <= 8) return { rating: 8, esValenciana };
+  if (puntos <= 11) return { rating: 9, esValenciana };
   return { rating: 10, esValenciana };
 }
 
