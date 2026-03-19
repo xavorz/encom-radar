@@ -1,5 +1,4 @@
 const cron = require('node-cron');
-const { analizarOportunidades } = require('./claude');
 const { buscarBDNS } = require('./scrapers/bdns');
 const { buscarContratacion } = require('./scrapers/contratacion');
 const { buscarDOGV } = require('./scrapers/dogv');
@@ -43,7 +42,7 @@ async function ejecutarBusqueda({ forzar = false } = {}) {
 
     // FUENTE 2: Licitaciones via web search (Haiku, ~$0.02)
     console.log('\n📡 Fuente 2: Licitaciones (web search)...');
-    await new Promise(r => setTimeout(r, 5000)); // pausa para rate limit
+    await new Promise(r => setTimeout(r, 15000)); // 15s pausa para rate limit
     let datosLicitaciones = [];
     try {
       datosLicitaciones = await buscarContratacion();
@@ -53,7 +52,7 @@ async function ejecutarBusqueda({ forzar = false } = {}) {
 
     // FUENTE 3: Subvenciones autonómicas via web search (Haiku, ~$0.02)
     console.log('\n📡 Fuente 3: Subvenciones autonómicas (web search)...');
-    await new Promise(r => setTimeout(r, 10000)); // pausa mayor para rate limit
+    await new Promise(r => setTimeout(r, 30000)); // 30s pausa para rate limit
     let datosGVA = [];
     try {
       datosGVA = await buscarDOGV();
@@ -61,14 +60,15 @@ async function ejecutarBusqueda({ forzar = false } = {}) {
       console.error('  ❌ GVA/DOGV falló:', err.message);
     }
 
-    const todasRaw = [...datosBDNS, ...datosLicitaciones, ...datosGVA];
+    // Todas las fuentes ya devuelven resultados con rating incluido
+    const todasPuntuadas = [...datosBDNS, ...datosLicitaciones, ...datosGVA];
 
-    console.log(`\n📊 Total recopilado: ${todasRaw.length} oportunidades brutas`);
+    console.log(`\n📊 Total recopilado: ${todasPuntuadas.length} oportunidades (ya puntuadas)`);
     console.log(`  - BDNS: ${datosBDNS.length}`);
     console.log(`  - Licitaciones: ${datosLicitaciones.length}`);
     console.log(`  - GVA/DOGV: ${datosGVA.length}`);
 
-    if (todasRaw.length === 0) {
+    if (todasPuntuadas.length === 0) {
       console.log('⚠️ No se encontraron oportunidades en ninguna fuente');
       const duracion = Date.now() - inicio;
       await query(
@@ -81,25 +81,20 @@ async function ejecutarBusqueda({ forzar = false } = {}) {
     // Deduplicar por título
     const unicas = [];
     const titulosVistos = new Set();
-    for (const op of todasRaw) {
+    for (const op of todasPuntuadas) {
       const tituloNorm = op.titulo.toLowerCase().substring(0, 80);
       if (!titulosVistos.has(tituloNorm)) {
         titulosVistos.add(tituloNorm);
         unicas.push(op);
       }
     }
-    console.log(`  📋 Tras deduplicar: ${unicas.length} únicas`);
+    console.log(`  📋 Tras deduplicar: ${unicas.length} únicas (todas con rating >= 5)`);
 
-    // FASE 2: Análisis con Claude Haiku (barato, ~$0.01 por lote de 15)
-    console.log('\n🤖 FASE 2: Análisis de relevancia con IA (Haiku)...');
-    const analizadas = await analizarOportunidades(unicas);
-    console.log(`  ✅ ${analizadas.length} oportunidades con rating >= 5`);
-
-    // FASE 3: Guardar en base de datos
-    console.log('\n💾 FASE 3: Guardando en base de datos...');
+    // FASE 2: Guardar en base de datos (sin análisis Claude — scoring ya hecho localmente)
+    console.log('\n💾 FASE 2: Guardando en base de datos...');
     let guardadas = 0;
 
-    for (const op of analizadas) {
+    for (const op of unicas) {
       const existente = await query(
         'SELECT id FROM oportunidades WHERE LOWER(titulo) = LOWER($1) AND organismo = $2',
         [op.titulo, op.organismo]
@@ -130,7 +125,7 @@ async function ejecutarBusqueda({ forzar = false } = {}) {
 
     await query(
       'INSERT INTO busquedas (resultados_encontrados, resultados_guardados, duracion_ms) VALUES ($1, $2, $3)',
-      [analizadas.length, guardadas, duracion]
+      [unicas.length, guardadas, duracion]
     );
 
     // Actualizar alertas de plazo
@@ -141,8 +136,8 @@ async function ejecutarBusqueda({ forzar = false } = {}) {
       WHERE estado NOT IN ('resuelta')
     `);
 
-    console.log(`\n✅ Búsqueda completada en ${Math.round(duracion/1000)}s: ${analizadas.length} relevantes, ${guardadas} nuevas guardadas\n`);
-    return { encontradas: analizadas.length, guardadas, duracion };
+    console.log(`\n✅ Búsqueda completada en ${Math.round(duracion/1000)}s: ${unicas.length} relevantes, ${guardadas} nuevas guardadas\n`);
+    return { encontradas: unicas.length, guardadas, duracion };
 
   } catch (err) {
     const duracion = Date.now() - inicio;
