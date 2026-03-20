@@ -40,9 +40,9 @@ async function ejecutarBusqueda({ forzar = false } = {}) {
     }
 
     // FUENTE 2: Subvenciones autonómicas via web search (Haiku, ~$0.02)
-    // Única llamada a Haiku → toda la ventana de rate limit para ella
-    console.log('\n📡 Fuente 2: Subvenciones autonómicas GVA (web search)... esperando 70s para rate limit');
-    await new Promise(r => setTimeout(r, 70000));
+    // Pausa de 120s para garantizar que el rate limit (10K tokens/min) se resetea
+    console.log('\n📡 Fuente 2: Subvenciones autonómicas GVA (web search)... esperando 2min para rate limit');
+    await new Promise(r => setTimeout(r, 120000));
     let datosGVA = [];
     try {
       datosGVA = await buscarDOGV();
