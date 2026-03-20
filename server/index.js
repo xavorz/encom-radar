@@ -16,7 +16,7 @@ const PORT = process.env.PORT || 3001;
 
 // Middleware
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:3000',
+  origin: process.env.CLIENT_URL || '*',
   credentials: true
 }));
 app.use(express.json());
@@ -30,6 +30,18 @@ app.use('/api/busqueda', busquedaRouter);
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
+
+// En producción (Docker/Coolify): servir el frontend estático
+if (process.env.NODE_ENV === 'production') {
+  const publicPath = path.join(__dirname, 'public');
+  app.use(express.static(publicPath));
+  // SPA fallback: cualquier ruta que no sea /api → index.html
+  app.get('*', (req, res) => {
+    if (!req.path.startsWith('/api')) {
+      res.sendFile(path.join(publicPath, 'index.html'));
+    }
+  });
+}
 
 // Iniciar servidor
 async function start() {

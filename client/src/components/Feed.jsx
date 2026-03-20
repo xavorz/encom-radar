@@ -4,7 +4,17 @@ import OportunidadCard from './OportunidadCard';
 
 function extraerFecha(fecha) {
   if (!fecha) return 'sin-fecha';
-  return fecha.substring(0, 10);
+  // Manejar ISO strings, timestamps, etc.
+  const str = String(fecha);
+  // Intentar extraer YYYY-MM-DD del inicio
+  const match = str.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (match) return match[1];
+  // Intentar parsear como Date
+  const d = new Date(str);
+  if (!isNaN(d.getTime())) {
+    return d.toISOString().substring(0, 10);
+  }
+  return 'sin-fecha';
 }
 
 function agruparPorFecha(oportunidades) {
@@ -18,7 +28,10 @@ function agruparPorFecha(oportunidades) {
 }
 
 function formatFechaGrupo(fecha) {
+  if (fecha === 'sin-fecha') return 'Sin fecha';
   const d = new Date(fecha + 'T12:00:00');
+  if (isNaN(d.getTime())) return 'Sin fecha';
+
   const hoy = new Date();
   const ayer = new Date(hoy);
   ayer.setDate(ayer.getDate() - 1);

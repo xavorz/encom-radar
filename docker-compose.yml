@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DATABASE_URL=postgresql://encom:${DB_PASSWORD}@db:5432/encom_radar
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - CRON_SCHEDULE=0 8 * * *
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=encom
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=encom_radar
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U encom -d encom_radar"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  pgdata:

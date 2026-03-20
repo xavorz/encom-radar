@@ -157,13 +157,18 @@ function iniciarScheduler() {
 
 async function limpiarAntiguas() {
   try {
+    // Solo borrar oportunidades que:
+    // 1. Tienen más de 90 días (no 30)
+    // 2. No están guardadas ni en seguimiento
+    // 3. Su plazo ya ha pasado (o no tienen plazo)
     const res = await query(`
       DELETE FROM oportunidades
-      WHERE fecha_deteccion < CURRENT_DATE - INTERVAL '30 days'
+      WHERE fecha_deteccion < CURRENT_DATE - INTERVAL '90 days'
       AND estado IN ('nueva', 'vista')
+      AND (plazo_presentacion IS NULL OR plazo_presentacion < CURRENT_DATE)
     `);
     if (res.rowCount > 0) {
-      console.log(`🧹 Limpiadas ${res.rowCount} oportunidades antiguas`);
+      console.log(`🧹 Limpiadas ${res.rowCount} oportunidades caducadas (>90 días + plazo pasado)`);
     }
   } catch (err) {
     console.error('Error limpiando oportunidades antiguas:', err.message);
