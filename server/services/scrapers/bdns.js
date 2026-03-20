@@ -48,6 +48,26 @@ const EXCLUIR_KEYWORDS = [
   'premio cómic', 'premio literario',
   // Sanidad
   'enfermos y familiar', 'personas diagnost', 'cirugía',
+  'medicina', 'sanitario', 'sanitaria',
+  // Concursos muy nicho
+  'concurso de escaparates', 'concurso de carteles',
+  'concurso de fotografía', 'concurso de pintura',
+  // Resoluciones administrativas genéricas (no convocatorias)
+  'resolución de presidencia', 'decreto de alcaldía',
+  // Subvenciones directas a entidades concretas
+  'subvención directa a', 'subvencion directa a',
+  'concesión directa de subvención', 'asistencia económica directa',
+  // Asociaciones muy específicas
+  'parroquia de', 'cofradía', 'hermandad',
+  // Control de plagas/animales
+  'control de poblac', 'tuberculosis',
+  // Equipos/clubs específicos
+  'club de tiro', 'club de golf', 'club de natación',
+  'club de atletismo', 'club de ciclismo', 'club de remo',
+  'club de rugby', 'club de hockey', 'club de voleibol',
+  // Mantenimiento/obras específicas
+  'mantenimiento del', 'reparación de', 'rehabilitación de camino',
+  'pavimentación', 'saneamiento',
 ];
 
 // === SISTEMA DE SCORING LOCAL (sin IA) ===
@@ -60,6 +80,9 @@ const TIER1 = [
   'cultura digital', 'eventos culturales', 'eventos tecnológic',
   'industrias creativas', 'industria cultural',
   'own festival', 'valencia digital summit',
+  'innovation capital', 'valencia innovation',
+  'eventos, ferias', 'ferias, exposiciones',
+  'actividades divulgativas', 'eventos tecnológicos',
 ];
 
 // Tier 2: encaje alto → +2 puntos cada match

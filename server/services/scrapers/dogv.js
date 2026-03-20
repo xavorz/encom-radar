@@ -67,11 +67,12 @@ function generarJustificacion(descripcion, rating, esValenciana) {
   return parts.join('. ') + '.';
 }
 
-async function buscarDOGV() {
+async function buscarDOGV(intento = 1) {
+  const MAX_INTENTOS = 2;
   const hoy = new Date().toISOString().split('T')[0];
 
   try {
-    console.log('  🔎 Buscando subvenciones autonómicas via web search...');
+    console.log(`  🔎 Buscando subvenciones autonómicas via web search (intento ${intento}/${MAX_INTENTOS})...`);
 
     const response = await client.messages.create({
       model: 'claude-haiku-4-5-20251001',
@@ -86,10 +87,10 @@ async function buscarDOGV() {
         content: `Busca subvenciones y ayudas ABIERTAS de la Comunitat Valenciana a fecha ${hoy} relevantes para una empresa de eventos tecnológicos y culturales.
 
 Haz estas búsquedas:
-1. site:dogv.gva.es subvención OR ayuda "cultura" OR "eventos" OR "turismo" OR "innovación" 2026
+1. "Valencia Innovation Capital" subvención OR ayuda eventos OR innovación OR emprendimiento 2026
 2. site:ivace.es ayudas OR convocatoria abierta 2026
-3. "Institut Valencià de Cultura" OR ivc.gva.es subvención OR ayuda festivales OR cultura 2026
-4. site:gva.es subvención cultura OR turismo OR innovación OR juventud convocatoria abierta 2026
+3. "Institut Valencià de Cultura" subvención OR ayuda festivales OR cultura OR audiovisual 2026
+4. Ayuntamiento de València OR Generalitat Valenciana subvención eventos OR cultura OR turismo OR innovación 2026
 
 Para cada subvención REAL que encuentres con plazo abierto, devuelve un JSON array:
 [{
@@ -145,10 +146,14 @@ IMPORTANTE:
     return resultados;
 
   } catch (err) {
+    if (err.status === 429 && intento < MAX_INTENTOS) {
+      console.log(`  ⏳ Rate limit en búsqueda autonómica, esperando 90s (intento ${intento}/${MAX_INTENTOS})...`);
+      await new Promise(r => setTimeout(r, 90000));
+      return buscarDOGV(intento + 1);
+    }
     if (err.status === 429) {
-      console.log('  ⏳ Rate limit en búsqueda autonómica, esperando 60s...');
-      await new Promise(r => setTimeout(r, 60000));
-      return buscarDOGV();
+      console.log('  ⚠️ Rate limit persistente en GVA/DOGV — saltando');
+      return [];
     }
     console.log(`  ⚠️ Error buscando subvenciones autonómicas: ${err.message}`);
     return [];

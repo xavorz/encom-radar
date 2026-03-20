@@ -41,8 +41,9 @@ async function ejecutarBusqueda({ forzar = false } = {}) {
     }
 
     // FUENTE 2: Licitaciones via web search (Haiku, ~$0.02)
-    console.log('\n📡 Fuente 2: Licitaciones (web search)...');
-    await new Promise(r => setTimeout(r, 15000)); // 15s pausa para rate limit
+    // Pausa de 70s para respetar rate limit de 10K tokens/min
+    console.log('\n📡 Fuente 2: Licitaciones (web search)... esperando 70s para rate limit');
+    await new Promise(r => setTimeout(r, 70000));
     let datosLicitaciones = [];
     try {
       datosLicitaciones = await buscarContratacion();
@@ -51,8 +52,9 @@ async function ejecutarBusqueda({ forzar = false } = {}) {
     }
 
     // FUENTE 3: Subvenciones autonómicas via web search (Haiku, ~$0.02)
-    console.log('\n📡 Fuente 3: Subvenciones autonómicas (web search)...');
-    await new Promise(r => setTimeout(r, 30000)); // 30s pausa para rate limit
+    // Pausa de 70s entre llamadas a Haiku
+    console.log('\n📡 Fuente 3: Subvenciones autonómicas (web search)... esperando 70s para rate limit');
+    await new Promise(r => setTimeout(r, 70000));
     let datosGVA = [];
     try {
       datosGVA = await buscarDOGV();
