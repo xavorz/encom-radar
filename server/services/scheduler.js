@@ -1,6 +1,5 @@
 const cron = require('node-cron');
 const { buscarBDNS } = require('./scrapers/bdns');
-const { buscarContratacion } = require('./scrapers/contratacion');
 const { buscarDOGV } = require('./scrapers/dogv');
 const { query } = require('./db');
 
@@ -40,20 +39,9 @@ async function ejecutarBusqueda({ forzar = false } = {}) {
       console.error('  ❌ BDNS falló:', err.message);
     }
 
-    // FUENTE 2: Licitaciones via web search (Haiku, ~$0.02)
-    // Pausa de 70s para respetar rate limit de 10K tokens/min
-    console.log('\n📡 Fuente 2: Licitaciones (web search)... esperando 70s para rate limit');
-    await new Promise(r => setTimeout(r, 70000));
-    let datosLicitaciones = [];
-    try {
-      datosLicitaciones = await buscarContratacion();
-    } catch (err) {
-      console.error('  ❌ Licitaciones falló:', err.message);
-    }
-
-    // FUENTE 3: Subvenciones autonómicas via web search (Haiku, ~$0.02)
-    // Pausa de 70s entre llamadas a Haiku
-    console.log('\n📡 Fuente 3: Subvenciones autonómicas (web search)... esperando 70s para rate limit');
+    // FUENTE 2: Subvenciones autonómicas via web search (Haiku, ~$0.02)
+    // Única llamada a Haiku → toda la ventana de rate limit para ella
+    console.log('\n📡 Fuente 2: Subvenciones autonómicas GVA (web search)... esperando 70s para rate limit');
     await new Promise(r => setTimeout(r, 70000));
     let datosGVA = [];
     try {
@@ -62,12 +50,14 @@ async function ejecutarBusqueda({ forzar = false } = {}) {
       console.error('  ❌ GVA/DOGV falló:', err.message);
     }
 
-    // Todas las fuentes ya devuelven resultados con rating incluido
-    const todasPuntuadas = [...datosBDNS, ...datosLicitaciones, ...datosGVA];
+    // Nota: Licitaciones eliminadas como fuente separada.
+    // PLACSP requiere certificado y la web search siempre da 0.
+    // Las licitaciones relevantes ya aparecen en BDNS como subvenciones/contratos.
+
+    const todasPuntuadas = [...datosBDNS, ...datosGVA];
 
     console.log(`\n📊 Total recopilado: ${todasPuntuadas.length} oportunidades (ya puntuadas)`);
     console.log(`  - BDNS: ${datosBDNS.length}`);
-    console.log(`  - Licitaciones: ${datosLicitaciones.length}`);
     console.log(`  - GVA/DOGV: ${datosGVA.length}`);
 
     if (todasPuntuadas.length === 0) {

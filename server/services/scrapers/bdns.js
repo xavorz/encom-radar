@@ -68,6 +68,12 @@ const EXCLUIR_KEYWORDS = [
   // Mantenimiento/obras específicas
   'mantenimiento del', 'reparación de', 'rehabilitación de camino',
   'pavimentación', 'saneamiento',
+  // Administración pública genérica
+  'instituto nacional de administración', 'formación de empleados públicos',
+  'cuota anual', 'aportación anual',
+  // Internacionalización genérica (sin relación con eventos)
+  'xpande', 'pyme global',
+  'visita a la feria internacional', // ferias comerciales genéricas, no gestión de eventos
 ];
 
 // === SISTEMA DE SCORING LOCAL (sin IA) ===
@@ -94,7 +100,6 @@ const TIER2 = [
   'audiovisual', 'producción artística', 'producción audiovisual',
   'sector cultural', 'programación cultural',
   'digitalización de empresas', 'digitalización de pyme',
-  'internacionalización',
 ];
 
 // Tier 3: keywords de sector SUELTAS
