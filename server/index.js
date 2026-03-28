@@ -26,6 +26,11 @@ app.use('/api/oportunidades', oportunidadesRouter);
 app.use('/api/compartir', compartirRouter);
 app.use('/api/busqueda', busquedaRouter);
 
+// SSO from Encom Tools Portal (Radar is public, just redirect to home)
+app.get('/api/sso', (req, res) => {
+  res.redirect('/');
+});
+
 // Health check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
